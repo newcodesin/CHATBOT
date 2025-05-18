@@ -1,0 +1,6 @@
+📁 telegram-registration-bot/
+├── bot.py               # Main bot logic
+├── data.xlsx            # Excel file storing users
+├── .env                 # Environment variables (token, admin ID)
+├── README.md            # You're here
+└── requirements.txt     # (Optional) pip freeze > requirements.txt
