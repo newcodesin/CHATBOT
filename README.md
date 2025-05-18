@@ -24,5 +24,5 @@ A secure and user-friendly Telegram bot that allows users to **register with the
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/telegram-registration-bot.git
-cd telegram-registration-bot
+git clone https://github.com/newcodesin/CHATBOT.git
+cd CHATBOT
