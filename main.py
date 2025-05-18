@@ -1,84 +1,121 @@
 import os
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from dotenv import load_dotenv
 import openpyxl
+import bcrypt
+from telegram import (Update, InputFile, ReplyKeyboardMarkup)
+from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler,
+                          ContextTypes, ConversationHandler,
+                          CallbackQueryHandler, filters)
+from dotenv import load_dotenv
 
-# Load environment variables
+# Load env variables
 load_dotenv()
+TELEGRAM_API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 
-# Define your bot token here
-TELEGRAM_API_TOKEN = "7131704065:AAE98jOe_nanKDYoDB45zCv0sDq0lm9yCw4"
-
-# Define states for conversation
+# States
 EMAIL, PASSWORD = range(2)
 
-# Path to the Excel file
+# Excel file
 EXCEL_FILE_PATH = 'data.xlsx'
 
-# Database to store user information (for simplicity, using a dictionary)
+# In-memory DB
 user_db = {}
 
 
-# Start command handler
+# Start command with keyboard
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Check if the user wants to log in
-    if update.message.text.lower() == 'i want to log in':
-        return LOGIN
-    else:
-        await update.message.reply_text(
-            'Hi! I am your bot. You can log in by typing "/login".')
+    reply_keyboard = [['/login', '/logout'], ['/cancel']]
+    markup = ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        '👋 Welcome! Please choose an option below:', reply_markup=markup)
+    return ConversationHandler.END
 
 
-# Login command handler
+# Login command
 async def login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text('Please enter your email:')
+    await update.message.reply_text('📧 Please enter your email:')
     return EMAIL
 
 
-# Email message handler
+# Email handler
 async def email(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     email = update.message.text
+    if not is_valid_email(email):
+        await update.message.reply_text('❌ Invalid email format. Try again:')
+        return EMAIL
+
     user_id = update.message.chat_id
     user_db[user_id] = {'email': email}
-    await update.message.reply_text('Please enter your password:')
+    await update.message.reply_text('🔒 Enter your password:')
     return PASSWORD
 
 
-# Password message handler
+# Password handler
 async def password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     password = update.message.text
     user_id = update.message.chat_id
-    user_db[user_id]['password'] = password
+    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user_db[user_id]['password'] = hashed_pw
 
-    # Save user data to Excel file
     save_user_data(user_db)
 
-    await update.message.reply_text('Your account has been registered.')
+    await update.message.reply_text('✅ You are registered successfully.')
     return ConversationHandler.END
 
 
-# Cancel command handler
+# Cancel command
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text('Registration cancelled.')
+    await update.message.reply_text('❌ Registration cancelled.')
     return ConversationHandler.END
 
 
-# Function to save user data to Excel file
+# Logout command
+async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.chat_id
+    if user_id in user_db:
+        del user_db[user_id]
+        await update.message.reply_text('🚪 You have been logged out.')
+    else:
+        await update.message.reply_text('⚠️ You are not logged in.')
+
+
+# Admin command to send Excel
+async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.chat_id != ADMIN_ID:
+        await update.message.reply_text('⛔ Access denied.')
+        return
+
+    if os.path.exists(EXCEL_FILE_PATH):
+        await update.message.reply_document(
+            document=InputFile(EXCEL_FILE_PATH),
+            filename="registered_users.xlsx",
+            caption="📄 List of registered users")
+    else:
+        await update.message.reply_text("❗ No data file found.")
+
+
+# Save user data to Excel
 def save_user_data(users):
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(('User ID', 'Email', 'Password'))
+    sheet.title = "Users"
+    sheet.append(('User ID', 'Email', 'Hashed Password'))
     for user_id, info in users.items():
         sheet.append((user_id, info['email'], info['password']))
     wb.save(EXCEL_FILE_PATH)
 
 
-def main() -> None:
-    # Create the Application and pass it your bot's token.
+# Email validator
+def is_valid_email(email):
+    import re
+    return re.match(r"[^@]+@[^@]+\.[^@]+", email)
+
+
+# Main entry
+def main():
     application = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
-    # Define the conversation handler with states EMAIL and PASSWORD
+    # Conversation handler for login
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('login', login)],
         states={
@@ -89,11 +126,13 @@ def main() -> None:
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    # Register the handlers
+    # Register handlers
     application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('logout', logout))
+    application.add_handler(CommandHandler('users', users))
     application.add_handler(conv_handler)
 
-    # Start the Bot
+    # Run bot
     application.run_polling()
 
 
